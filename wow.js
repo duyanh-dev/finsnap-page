@@ -1,9 +1,11 @@
 (() => {
   if (!window.gsap || !window.THREE) return;
   gsap.registerPlugin(ScrollTrigger);
+  ScrollTrigger.config({ ignoreMobileResize: true }); // URL-bar show/hide must not re-layout the whole page
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => gsap.utils.toArray(s);
   const fine = matchMedia("(hover:hover) and (pointer:fine)").matches;
+  const desk = innerWidth > 900;
 
   /* ---------- PRELOADER: app screens SNAP onto a stack, the shutter floods yellow, curtains open ---------- */
   history.scrollRestoration = "manual"; scrollTo(0, 0);
@@ -94,7 +96,7 @@
     once: true,
     onEnter: (b) => gsap.to(b, { y: 0, opacity: 1, stagger: 0.12, duration: 1, ease: "power3.out", overwrite: true }),
   });
-  gsap.fromTo(".philosophy", { clipPath: "inset(10% 8% round 80px)" },
+  if (desk) gsap.fromTo(".philosophy", { clipPath: "inset(10% 8% round 80px)" },
     { clipPath: "inset(0% 0% round 0px)", ease: "none", scrollTrigger: { trigger: ".philosophy", start: "top 100%", end: "top 30%", scrub: true } });
   gsap.from(".philosophy h2", { scale: 0.7, ease: "none", scrollTrigger: { trigger: ".philosophy", start: "top 80%", end: "center center", scrub: true } });
   gsap.from(".step-number, .sc-number", { scale: 0, rotation: -180, stagger: 0.15, duration: 0.9, ease: "back.out(2)", scrollTrigger: { trigger: ".shortcut-steps", start: "top 80%" } });
@@ -178,7 +180,7 @@
   $(".philosophy").after(un);
   const cards = $$(".unfold-card"), mid = (cards.length - 1) / 2;
   gsap.set(cards, { rotation: (i) => (i - mid) * 2, scale: 0.7, zIndex: (i) => 20 - Math.abs(i - mid), transformOrigin: "50% 100%" });
-  gsap.timeline({ scrollTrigger: { trigger: un, start: "top top", end: "+=320%", scrub: 1, pin: true, invalidateOnRefresh: true } })
+  gsap.timeline({ scrollTrigger: { trigger: un, start: "top top", end: "+=320%", scrub: 1, pin: true, anticipatePin: 1, invalidateOnRefresh: true } })
     .to(".unfold-dark", { clipPath: "circle(75% at 50% 50%)", duration: 1, ease: "power2.inOut" })
     .to(cards, { rotation: (i) => (i - mid) * 9, x: (i) => (i - mid) * innerWidth * 0.05, y: (i) => Math.pow(Math.abs(i - mid), 2) * 14, scale: 0.9, duration: 1, ease: "power2.out" })
     .to(cards, { rotation: 0, x: (i) => (i - mid) * Math.min(innerWidth * 0.13, 190), y: 0, scale: 1, duration: 1.2, ease: "power3.inOut" })
@@ -187,9 +189,9 @@
   /* ---------- SECTION TRANSITIONS ---------- */
   const rad = innerWidth > 900 ? 56 : 36;
   gsap.fromTo(".hero > *:not(.hero-stage)", { opacity: 1, y: 0 }, { opacity: 0, y: -60, immediateRender: false, ease: "none", scrollTrigger: { trigger: ".hero", start: "top top", end: "75% top", scrub: true } });
-  gsap.fromTo(".shortcut-guide", { clipPath: `inset(7% 4% 0% 4% round ${rad}px ${rad}px 0 0)` }, { clipPath: "inset(0% 0% 0% 0% round 0px)", ease: "none", scrollTrigger: { trigger: ".shortcut-guide", start: "top 100%", end: "top 25%", scrub: true } });
+  if (desk) gsap.fromTo(".shortcut-guide", { clipPath: `inset(7% 4% 0% 4% round ${rad}px ${rad}px 0 0)` }, { clipPath: "inset(0% 0% 0% 0% round 0px)", ease: "none", scrollTrigger: { trigger: ".shortcut-guide", start: "top 100%", end: "top 25%", scrub: true } });
   gsap.from(".guide-container", { scale: 0.86, yPercent: 8, ease: "none", scrollTrigger: { trigger: ".expo-guide", start: "top 100%", end: "top 30%", scrub: true } });
-  gsap.fromTo(".ft", { clipPath: `inset(10% 5% 0% 5% round ${rad}px ${rad}px 0 0)` }, { clipPath: `inset(0% 0% 0% 0% round ${rad}px ${rad}px 0 0)`, ease: "none", scrollTrigger: { trigger: ".ft", start: "top 100%", end: "top 40%", scrub: true } });
+  if (desk) gsap.fromTo(".ft", { clipPath: `inset(10% 5% 0% 5% round ${rad}px ${rad}px 0 0)` }, { clipPath: `inset(0% 0% 0% 0% round ${rad}px ${rad}px 0 0)`, ease: "none", scrollTrigger: { trigger: ".ft", start: "top 100%", end: "top 40%", scrub: true } });
 
   /* ---------- THREE.JS HERO STAGE ---------- */
   const stage = document.createElement("div");
@@ -202,7 +204,7 @@
   const canvas = $("#stage");
   let renderer;
   try { renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true }); } catch (e) { stage.remove(); return; }
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, fine ? 2 : 1.5));
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -277,16 +279,21 @@
 
   let w = innerWidth, h = innerHeight, unit = 0.01;
   const resize = () => {
-    w = innerWidth; h = innerHeight;
+    w = innerWidth; h = canvas.clientHeight || innerHeight;
     renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
     unit = (2 * cam.position.z * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / h;
   };
   resize();
-  addEventListener("resize", () => { resize(); ScrollTrigger.refresh(); });
+  // cache the stage position once (no per-frame layout reads while scrolling)
+  let sr = { left: 0, top: 0, width: 1, height: 1 };
+  const cacheStage = () => { const q = stage.getBoundingClientRect(); sr = { left: q.left + scrollX, top: q.top + scrollY, width: q.width, height: q.height }; };
+  cacheStage(); ScrollTrigger.addEventListener("refresh", cacheStage);
+  let lastW = innerWidth;
+  addEventListener("resize", () => { if (innerWidth === lastW) return; lastW = innerWidth; resize(); ScrollTrigger.refresh(); });
   addEventListener("load", () => ScrollTrigger.refresh());
 
-  let p = 0;
-  ScrollTrigger.create({ trigger: stage, start: "center 40%", end: "bottom 10%", scrub: true, onUpdate: (s) => { p = s.progress; canvas.style.opacity = 1 - p; } });
+  let p = 0; const setOp = gsap.quickSetter(canvas, "opacity");
+  ScrollTrigger.create({ trigger: stage, start: "center 40%", end: "bottom 10%", scrub: true, onUpdate: (s) => { p = s.progress; setOp(1 - p); } });
 
   // drag to spin (mouse + touch), tap to flip and change screen
   const S = { spinT: 0 };
@@ -316,7 +323,7 @@
   const clock = new THREE.Clock();
   (function tick() {
     requestAnimationFrame(tick);
-    const r = stage.getBoundingClientRect();
+    const rt = sr.top - scrollY, r = { left: sr.left - scrollX, top: rt, width: sr.width, height: sr.height, bottom: rt + sr.height };
     if (p >= 0.999 || r.bottom < 0 || r.top > h) return;
     const t = clock.getElapsedTime();
     if (!fine) { mx = Math.sin(t * 0.5) * 0.5; my = Math.cos(t * 0.4) * 0.2; }
